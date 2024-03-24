@@ -30,6 +30,7 @@ DOCA_LOG_REGISTER(L2_REFLECTOR);
 
 static bool force_quit; /* Set to true to terminate the application */
 extern flexio_func_t l2_reflector_device_init;
+extern flexio_func_t get_processed_packets_num;
 
 /*
  * Signals handler function to handle SIGINT and SIGTERM signals
@@ -39,7 +40,8 @@ extern flexio_func_t l2_reflector_device_init;
 static void
 signal_handler(int signum)
 {
-	if (signum == SIGINT || signum == SIGTERM) {
+	if (signum == SIGINT || signum == SIGTERM)
+	{
 		/* Add additional new lines for output readability */
 		DOCA_LOG_INFO("");
 		DOCA_LOG_INFO("Signal %d received, preparing to exit", signum);
@@ -55,14 +57,14 @@ signal_handler(int signum)
  * @argv [in]: array of command line arguments
  * @return: EXIT_SUCCESS on success and EXIT_FAILURE otherwise
  */
-int
-main(int argc, char **argv)
+int main(int argc, char **argv)
 {
 	int ret = 0;
 	uint64_t rpc_ret_val;
 	struct l2_reflector_config app_cfg;
 	struct doca_log_backend *sdk_log;
 	doca_error_t result;
+	uint64_t ret_rpc_val = 0;
 
 	force_quit = false;
 	memset(&app_cfg, 0, sizeof(app_cfg));
@@ -82,18 +84,21 @@ main(int argc, char **argv)
 
 	/* Parse cmdline/json arguments */
 	result = doca_argp_init("l2_reflector", &app_cfg);
-	if (result != DOCA_SUCCESS) {
+	if (result != DOCA_SUCCESS)
+	{
 		DOCA_LOG_ERR("Failed to init ARGP resources: %s", doca_error_get_descr(result));
 		return EXIT_FAILURE;
 	}
 	result = register_l2_reflector_params();
-	if (result != DOCA_SUCCESS) {
+	if (result != DOCA_SUCCESS)
+	{
 		DOCA_LOG_ERR("Failed to register application params: %s", doca_error_get_descr(result));
 		doca_argp_destroy();
 		return EXIT_FAILURE;
 	}
 	result = doca_argp_start(argc, argv);
-	if (result != DOCA_SUCCESS) {
+	if (result != DOCA_SUCCESS)
+	{
 		DOCA_LOG_ERR("Failed to parse application input: %s", doca_error_get_descr(result));
 		doca_argp_destroy();
 		return EXIT_FAILURE;
@@ -101,7 +106,8 @@ main(int argc, char **argv)
 
 	/* Open IB device and allocate PD */
 	result = l2_reflector_setup_ibv_device(&app_cfg);
-	if (result != DOCA_SUCCESS) {
+	if (result != DOCA_SUCCESS)
+	{
 		doca_argp_destroy();
 		return EXIT_FAILURE;
 	}
@@ -118,27 +124,31 @@ main(int argc, char **argv)
 
 	/* Run init function on device */
 	ret = flexio_process_call(app_cfg.flexio_process, &l2_reflector_device_init, &rpc_ret_val,
-				  app_cfg.dev_data_daddr);
-	if (ret != FLEXIO_STATUS_SUCCESS) {
+							  app_cfg.dev_data_daddr);
+	if (ret != FLEXIO_STATUS_SUCCESS)
+	{
 		DOCA_LOG_ERR("Failed to call init function on device");
 		goto device_resources_cleanup;
 	}
 
 	/* Steering rule */
 	result = l2_reflector_create_steering_rule_rx(&app_cfg);
-	if (result != DOCA_SUCCESS) {
+	if (result != DOCA_SUCCESS)
+	{
 		DOCA_LOG_ERR("Failed to create RX steering rule");
 		goto device_resources_cleanup;
 	}
 
 	result = l2_reflector_create_steering_rule_tx(&app_cfg);
-	if (result != DOCA_SUCCESS) {
+	if (result != DOCA_SUCCESS)
+	{
 		DOCA_LOG_ERR("Failed to create TX steering rule");
 		goto rule_cleanup;
 	}
 
 	ret = flexio_event_handler_run(app_cfg.event_handler, 0);
-	if (ret != FLEXIO_STATUS_SUCCESS) {
+	if (ret != FLEXIO_STATUS_SUCCESS)
+	{
 		DOCA_LOG_ERR("Failed to run event handler on device");
 		goto rule_cleanup;
 	}
@@ -150,7 +160,16 @@ main(int argc, char **argv)
 	DOCA_LOG_INFO("");
 	DOCA_LOG_INFO("Press Ctrl+C to terminate");
 	while (!force_quit)
+	{
 		sleep(1);
+		ret = flexio_process_call(app_cfg.flexio_process, &get_processed_packets_num, &ret_rpc_val, 0);
+		if (ret != FLEXIO_STATUS_SUCCESS)
+		{
+			DOCA_LOG_ERR("Failed to call RPC function");
+			goto rule_cleanup;
+		}
+		DOCA_LOG_INFO("DPA has processed %ld packets!", ret_rpc_val);
+	}
 
 	l2_reflector_destroy(&app_cfg);
 	return EXIT_SUCCESS;

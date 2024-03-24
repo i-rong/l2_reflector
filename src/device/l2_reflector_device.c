@@ -22,51 +22,57 @@
 
 #include "../common/l2_reflector_common.h"
 
-flexio_dev_rpc_handler_t l2_reflector_dev_init;		/* Device initialization function */
-flexio_dev_event_handler_t l2_reflector_event_handler;	/* Event handler function */
+flexio_dev_rpc_handler_t l2_reflector_dev_init;		   /* Device initialization function */
+flexio_dev_event_handler_t l2_reflector_event_handler; /* Event handler function */
+uint64_t PACKETS_PROCESSED_NUM = 0;
 
 /* CQ Context */
-struct cq_ctx_t {
-	uint32_t cq_number;			/* CQ number */
-	struct flexio_dev_cqe64 *cq_ring;	/* CQEs buffer */
-	struct flexio_dev_cqe64 *cqe;		/* Current CQE */
-	uint32_t cq_idx;			/* Current CQE IDX */
-	uint8_t cq_hw_owner_bit;		/* HW/SW ownership */
-	uint32_t *cq_dbr;			/* CQ doorbell record */
+struct cq_ctx_t
+{
+	uint32_t cq_number;				  /* CQ number */
+	struct flexio_dev_cqe64 *cq_ring; /* CQEs buffer */
+	struct flexio_dev_cqe64 *cqe;	  /* Current CQE */
+	uint32_t cq_idx;				  /* Current CQE IDX */
+	uint8_t cq_hw_owner_bit;		  /* HW/SW ownership */
+	uint32_t *cq_dbr;				  /* CQ doorbell record */
 };
 
 /* RQ Context */
-struct rq_ctx_t {
-	uint32_t rq_number;				/* RQ number */
-	struct flexio_dev_wqe_rcv_data_seg *rq_ring;	/* WQEs buffer */
-	uint32_t *rq_dbr;				/* RQ doorbell record */
+struct rq_ctx_t
+{
+	uint32_t rq_number;							 /* RQ number */
+	struct flexio_dev_wqe_rcv_data_seg *rq_ring; /* WQEs buffer */
+	uint32_t *rq_dbr;							 /* RQ doorbell record */
 };
 
 /* SQ Context */
-struct sq_ctx_t {
-	uint32_t sq_number;			/* SQ number */
-	uint32_t sq_wqe_seg_idx;		/* WQE segment index */
-	union flexio_dev_sqe_seg *sq_ring;	/* SQEs buffer */
-	uint32_t *sq_dbr;			/* SQ doorbell record */
-	uint32_t sq_pi;				/* SQ producer index */
+struct sq_ctx_t
+{
+	uint32_t sq_number;				   /* SQ number */
+	uint32_t sq_wqe_seg_idx;		   /* WQE segment index */
+	union flexio_dev_sqe_seg *sq_ring; /* SQEs buffer */
+	uint32_t *sq_dbr;				   /* SQ doorbell record */
+	uint32_t sq_pi;					   /* SQ producer index */
 };
 
 /* SQ data buffer */
-struct dt_ctx_t {
-	void *sq_tx_buff;	/* SQ TX buffer */
-	uint32_t tx_buff_idx;	/* TX buffer index */
+struct dt_ctx_t
+{
+	void *sq_tx_buff;	  /* SQ TX buffer */
+	uint32_t tx_buff_idx; /* TX buffer index */
 };
 
 /* Device context */
-static struct {
-	uint32_t lkey;			/* Local memory key */
-	uint32_t is_initalized;		/* Initialization flag */
-	struct cq_ctx_t rqcq_ctx;	/* RQ CQ context */
-	struct cq_ctx_t sqcq_ctx;	/* SQ CQ context */
-	struct rq_ctx_t rq_ctx;		/* RQ context */
-	struct sq_ctx_t sq_ctx;		/* SQ context */
-	struct dt_ctx_t dt_ctx;		/* DT context */
-	uint32_t packets_count;		/* Number of processed packets */
+static struct
+{
+	uint32_t lkey;			  /* Local memory key */
+	uint32_t is_initalized;	  /* Initialization flag */
+	struct cq_ctx_t rqcq_ctx; /* RQ CQ context */
+	struct cq_ctx_t sqcq_ctx; /* SQ CQ context */
+	struct rq_ctx_t rq_ctx;	  /* RQ context */
+	struct sq_ctx_t sq_ctx;	  /* SQ context */
+	struct dt_ctx_t dt_ctx;	  /* DT context */
+	uint32_t packets_count;	  /* Number of processed packets */
 } dev_ctx = {0};
 
 /*
@@ -130,7 +136,7 @@ static void *
 get_next_dte(struct dt_ctx_t *dt_ctx, uint32_t dt_idx_mask, uint32_t log_dt_entry_sz)
 {
 	uint32_t mask = ((dt_ctx->tx_buff_idx++ & dt_idx_mask) << log_dt_entry_sz);
-	char *buff_p =  (char *) dt_ctx->sq_tx_buff;
+	char *buff_p = (char *)dt_ctx->sq_tx_buff;
 
 	return buff_p + mask;
 }
@@ -189,7 +195,6 @@ process_packet(struct flexio_dev_thread_ctx *dtctx)
 	/* MAC address has 6 bytes: ff:ff:ff:ff:ff:ff */
 	const int nb_mac_address_bytes = 6;
 
-
 	/* Extract relevant data from CQE */
 	rq_wqe_idx = flexio_dev_cqe_get_wqe_counter(dev_ctx.rqcq_ctx.cqe);
 	data_sz = flexio_dev_cqe_get_byte_cnt(dev_ctx.rqcq_ctx.cqe);
@@ -207,7 +212,8 @@ process_packet(struct flexio_dev_thread_ctx *dtctx)
 	memcpy(sq_data, rq_data, data_sz);
 
 	/* swap mac addresses */
-	for (int byte = 0; byte < nb_mac_address_bytes; byte++) {
+	for (int byte = 0; byte < nb_mac_address_bytes; byte++)
+	{
 		tmp = sq_data[byte];
 		sq_data[byte] = sq_data[byte + nb_mac_address_bytes];
 		/* dst and src MACs are aligned one after the other in the ether header */
@@ -219,7 +225,7 @@ process_packet(struct flexio_dev_thread_ctx *dtctx)
 
 	/* Fill out 1-st segment (Control) */
 	flexio_dev_swqe_seg_ctrl_set(swqe, dev_ctx.sq_ctx.sq_pi, dev_ctx.sq_ctx.sq_number,
-				     MLX5_CTRL_SEG_CE_CQE_ON_CQE_ERROR, FLEXIO_CTRL_SEG_SEND_EN);
+								 MLX5_CTRL_SEG_CE_CQE_ON_CQE_ERROR, FLEXIO_CTRL_SEG_SEND_EN);
 
 	/* Fill out 2-nd segment (Ethernet) */
 	swqe = get_next_sqe(&dev_ctx.sq_ctx, L2_SQ_IDX_MASK);
@@ -238,6 +244,8 @@ process_packet(struct flexio_dev_thread_ctx *dtctx)
 	flexio_dev_qp_sq_ring_db(dtctx, dev_ctx.sq_ctx.sq_pi, dev_ctx.sq_ctx.sq_number);
 	__dpa_thread_fence(__DPA_MEMORY, __DPA_W, __DPA_W);
 	flexio_dev_dbr_rq_inc_pi(dev_ctx.rq_ctx.rq_dbr);
+
+	PACKETS_PROCESSED_NUM += 1;
 }
 
 /*
@@ -264,13 +272,19 @@ l2_reflector_device_init(uint64_t data)
 	return 0;
 }
 
+__dpa_rpc__ uint64_t
+get_processed_packets_num(uint64_t __unused arg0)
+{
+	return PACKETS_PROCESSED_NUM;
+}
+
 /*
  * This function is called when a new packet is received to RQ's CQ.
  * Upon receiving a packet, the function will iterate over all received packets and process them.
  * Once all packets in the CQ are processed, the CQ will be rearmed to receive new packets events.
  */
-void
-__dpa_global__ l2_reflector_device_event_handler(uint64_t __unused arg0)
+void __dpa_global__
+l2_reflector_device_event_handler(uint64_t __unused arg0)
 {
 	struct flexio_dev_thread_ctx *dtctx;
 
@@ -279,7 +293,8 @@ __dpa_global__ l2_reflector_device_event_handler(uint64_t __unused arg0)
 	if (dev_ctx.is_initalized == 0)
 		flexio_dev_thread_reschedule();
 
-	while (flexio_dev_cqe_get_owner(dev_ctx.rqcq_ctx.cqe) != dev_ctx.rqcq_ctx.cq_hw_owner_bit) {
+	while (flexio_dev_cqe_get_owner(dev_ctx.rqcq_ctx.cqe) != dev_ctx.rqcq_ctx.cq_hw_owner_bit)
+	{
 		__dpa_thread_fence(__DPA_MEMORY, __DPA_R, __DPA_R);
 		process_packet(dtctx);
 		step_cq(&dev_ctx.rqcq_ctx, L2_CQ_IDX_MASK);
