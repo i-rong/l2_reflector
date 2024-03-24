@@ -28,6 +28,8 @@
 
 DOCA_LOG_REGISTER(L2_REFLECTOR);
 
+#define SIMULATION_TIME 60 // 模拟一分钟
+
 static bool force_quit; /* Set to true to terminate the application */
 extern flexio_func_t l2_reflector_device_init;
 extern flexio_func_t get_processed_packets_num;
@@ -65,6 +67,14 @@ int main(int argc, char **argv)
 	struct doca_log_backend *sdk_log;
 	doca_error_t result;
 	uint64_t ret_rpc_val = 0;
+	int packets_per_second[SIMULATION_TIME] = {0};
+	int current_second = 0;
+	int new_second;
+	uint64_t last_rpc_val = 0;
+
+	time_t start_time;
+	time_t current_time;
+	float avg_packets_per_second;
 
 	force_quit = false;
 	memset(&app_cfg, 0, sizeof(app_cfg));
@@ -159,16 +169,47 @@ int main(int argc, char **argv)
 	/* Add an additional new line for output readability */
 	DOCA_LOG_INFO("");
 	DOCA_LOG_INFO("Press Ctrl+C to terminate");
-	while (!force_quit)
+
+	start_time = time(NULL);
+	current_time = start_time;
+	struct tm *time_info = localtime(&current_time);
+
+	while (!force_quit && (difftime(time(NULL), start_time) < SIMULATION_TIME))
 	{
-		sleep(1);
 		ret = flexio_process_call(app_cfg.flexio_process, &get_processed_packets_num, &ret_rpc_val, 0);
 		if (ret != FLEXIO_STATUS_SUCCESS)
 		{
 			DOCA_LOG_ERR("Failed to call RPC function");
 			goto rule_cleanup;
 		}
-		DOCA_LOG_INFO("DPA has processed %ld packets!", ret_rpc_val);
+
+		while (!force_quit && last_rpc_val == ret_rpc_val)
+		{
+			sleep(2);
+			DOCA_LOG_INFO("DPA has processed %ld packets!", ret_rpc_val);
+		}
+
+		// 报文个数增加了
+		current_time = time(NULL);
+		new_second = localtime(&current_time)->tm_sec; // 更新当前秒数
+		if (new_second != current_second)
+		{
+			current_second = new_second;
+			packets_per_second[current_second] = 0;
+		}
+		packets_per_second[current_second] = ret_rpc_val - last_rpc_val;
+		last_rpc_val = ret_rpc_val;
+	}
+
+	DOCA_LOG_INFO("Total packets processed in %d seconds: %ld\n", SIMULATION_TIME, ret_rpc_val);
+	avg_packets_per_second = (float)ret_rpc_val / SIMULATION_TIME;
+	DOCA_LOG_INFO("Average packets per second: %.2f\n", avg_packets_per_second);
+
+	// 打印每秒处理的报文数量
+	DOCA_LOG_INFO("Packets per second:\n");
+	for (int i = 0; i < current_second; i++)
+	{
+		DOCA_LOG_INFO("Second %d: %d\n", i, packets_per_second[i]);
 	}
 
 	l2_reflector_destroy(&app_cfg);
